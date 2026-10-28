@@ -5,112 +5,139 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Obsidian AI ブレスト</title>
   <style>
-    body { font-family: -apple-system, sans-serif; margin: 0; padding: 15px; background: #f4f5f7; display: flex; flex-direction: column; height: 95vh; }
+    body { font-family: -apple-system, sans-serif; margin: 0; padding: 15px; background: #f4f5f7; display: flex; flex-direction: column; height: 95vh; box-sizing: border-box; }
     #chat-box { flex-grow: 1; overflow-y: auto; background: white; padding: 15px; border-radius: 12px; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .msg { margin-bottom: 10px; padding: 10px; border-radius: 8px; max-width: 85%; line-height: 1.5; }
+    .msg { margin-bottom: 10px; padding: 10px; border-radius: 8px; max-width: 85%; line-height: 1.5; word-wrap: break-word; }
     .user-msg { background: #e3f2fd; align-self: flex-end; margin-left: auto; }
     .ai-msg { background: #f0f0f0; align-self: flex-start; }
+    .error-msg { background: #ffebee; color: #c62828; align-self: center; font-size: 14px; width: 100%; border-radius: 8px; }
     .controls { display: flex; gap: 8px; margin-bottom: 10px; }
     input[type="text"] { flex-grow: 1; padding: 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
     button { padding: 12px 15px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: white; }
     #btn-mic { background: #ea4335; }
-    #btn-send { background: #4285f4; }
-    #btn-save { background: #7b61ff; width: 100%; padding: 15px; } /* Obsidianカラー */
+    #btn-send { background: #4285f4; min-width: 70px; }
+    #btn-save { background: #7b61ff; width: 100%; padding: 15px; }
   </style>
 </head>
 <body>
-
   <div id="chat-box"></div>
-
   <div class="controls">
     <button id="btn-mic" onclick="toggleMic()">🎤</button>
-    <input type="text" id="user-input" placeholder="アイデアを話すか入力...">
+    <input type="text" id="user-input" placeholder="アイデアを話すか入力..." onkeypress="if(event.key === 'Enter') sendMessage()">
     <button id="btn-send" onclick="sendMessage()">送信</button>
   </div>
-  
   <button id="btn-save" onclick="summarizeAndSave()">📤 会話をまとめてObsidianに保存</button>
 
   <script>
-    // ▼▼ ここを書き換えてください ▼▼
-    const GEMINI_API_KEY = "AQ.Ab8RN6Jier8JLornlsA_Wq-Q8XQwGysLjMx1_pHEth2s8rgQ0g";
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbyf39J228AitFXvJf8NiRCec8e4Yl0n_LTWCz8Ba_Xm1sHQRda4KEnb2BoKDm6Vtd6R/exec";
-    // ▲▲ ここを書き換えてください ▲▲
+    // ▼▼ ここだけ書き換えてください ▼▼
+    const RAW_API_KEY = "AQ.Ab8RN6LKiusuB7r4UEvFrP_UmiCoewGNGn-Qm1QGdw4RTnvEBw";
+    const RAW_GAS_URL = "https://script.google.com/macros/s/AKfycbyf39J228AitFXvJf8NiRCec8e4Yl0n_LTWCz8Ba_Xm1sHQRda4KEnb2BoKDm6Vtd6R/exec";
+    // ▲▲ ここだけ書き換えてください ▲▲
+
+    // 見えないスペースや改行を自動で削除する安全処理
+    const GEMINI_API_KEY = RAW_API_KEY.trim();
+    const GAS_URL = RAW_GAS_URL.trim();
 
     let chatHistory = [];
     const chatBox = document.getElementById("chat-box");
     const inputField = document.getElementById("user-input");
+    const btnSend = document.getElementById("btn-send");
 
-    // 画面にメッセージを追加する関数
     function addMessage(text, sender) {
       const div = document.createElement("div");
-      div.className = "msg " + (sender === "user" ? "user-msg" : "ai-msg");
+      div.className = "msg " + (sender === "user" ? "user-msg" : (sender === "error" ? "error-msg" : "ai-msg"));
       div.innerText = text;
       chatBox.appendChild(div);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // Geminiと会話する関数
     async function sendMessage() {
-      const text = inputField.value;
+      const text = inputField.value.trim();
       if (!text) return;
       
       addMessage(text, "user");
       chatHistory.push({ role: "user", parts: [{ text: text }] });
       inputField.value = "";
+      btnSend.innerText = "⏳";
+      btnSend.disabled = true;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: chatHistory })
-      });
-      
-      const data = await response.json();
-      const aiText = data.candidates[0].content.parts[0].text;
-      addMessage(aiText, "ai");
-      chatHistory.push({ role: "model", parts: [{ text: aiText }] });
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: chatHistory })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTPエラー: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const aiText = data.candidates[0].content.parts[0].text;
+        addMessage(aiText, "ai");
+        chatHistory.push({ role: "model", parts: [{ text: aiText }] });
+      } catch (err) {
+        addMessage("通信エラーが発生しました: " + err.message, "error");
+        chatHistory.pop(); // 失敗した履歴を取り消す
+      } finally {
+        btnSend.innerText = "送信";
+        btnSend.disabled = false;
+      }
     }
 
-    // 会話を要約して保存する関数
     async function summarizeAndSave() {
+      if(chatHistory.length === 0) {
+        alert("会話履歴がありません");
+        return;
+      }
       const btn = document.getElementById("btn-save");
       btn.innerText = "⏳ まとめを作成中...";
       btn.disabled = true;
 
-      // 会話履歴を元に要約を作成させる
-      const summaryPrompt = "ここまでの対話内容から、重要なアイデアや気付きを抽出し、Obsidian用の美しいMarkdownノート（見出し、箇条書きを活用）を生成してください。余計な挨拶は省き、Markdownテキストのみを出力してください。最後に #アイデア のタグをつけてください。";
-      const tempHistory = [...chatHistory, { role: "user", parts: [{ text: summaryPrompt }] }];
+      try {
+        const summaryPrompt = "ここまでの対話内容から、重要なアイデアや気付きを抽出し、Obsidian用の美しいMarkdownノート（見出し、箇条書きを活用）を生成してください。余計な挨拶は省き、Markdownテキストのみを出力してください。最後に #アイデア のタグをつけてください。";
+        const tempHistory = [...chatHistory, { role: "user", parts: [{ text: summaryPrompt }] }];
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: tempHistory })
-      });
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: tempHistory })
+        });
 
-      const data = await response.json();
-      let markdown = data.candidates[0].content.parts[0].text;
-      markdown = markdown.replace(/^```markdown\n/i, "").replace(/\n```$/i, ""); // 装飾を除去
+        if (!response.ok) throw new Error("Gemini APIでのまとめ生成に失敗しました");
 
-      btn.innerText = "☁️ ドライブへ保存中...";
+        const data = await response.json();
+        let markdown = data.candidates[0].content.parts[0].text;
+        markdown = markdown.replace(/^```markdown\n/i, "").replace(/\n```$/i, ""); 
 
-      // GASへ送信
-      await fetch(GAS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "text=" + encodeURIComponent(markdown)
-      });
+        btn.innerText = "☁️ ドライブへ保存中...";
 
-      btn.innerText = "✅ 保存完了！";
-      setTimeout(() => { btn.innerText = "📤 会話をまとめてObsidianに保存"; btn.disabled = false; }, 3000);
+        const gasResponse = await fetch(GAS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "text=" + encodeURIComponent(markdown)
+        });
+        
+        // GAS側でエラーが起きても無視せず検知する
+        const gasResult = await gasResponse.text();
+        if (gasResult.includes("error")) throw new Error("Googleドライブへの保存に失敗しました");
+
+        btn.innerText = "✅ 保存完了！";
+      } catch (err) {
+        alert("エラーが発生しました: " + err.message);
+        btn.innerText = "❌ 保存失敗";
+      } finally {
+        setTimeout(() => { btn.innerText = "📤 会話をまとめてObsidianに保存"; btn.disabled = false; }, 3000);
+      }
     }
 
-    // 音声入力機能
     let recognizing = false;
     let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.lang = 'ja-JP';
     
     recognition.onresult = function(event) {
       inputField.value = event.results[0][0].transcript;
-      sendMessage(); // 喋り終わったら自動送信
+      sendMessage(); 
     };
     
     recognition.onend = function() {
